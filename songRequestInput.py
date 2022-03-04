@@ -93,6 +93,10 @@ def checkForDuplicates(URL):
 # Return (via print) message to be sent to chat
 # Add song to SQLite DB
 def main():
+	if len(sys.argv) < 5:
+		print('Usage: ' + sys.argv[0] + ' [Priority=0|1] [TwitchUserID] [TwitchUsername] [RequestURL/SearchTerm(s)]')
+		sys.exit(1)
+	
 	# Priority = 0 | 1
 	Priority = sys.argv[1]
 	# TwitchUserID = Twitch UUID
