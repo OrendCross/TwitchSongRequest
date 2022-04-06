@@ -1,19 +1,15 @@
 # songRequestInput.py
 # Takes inputted YouTube, SoundCloud, or phrases and inserts relevant audio URLs into the queue database
 
-import os.path, sqlite3, urllib.request, re, sys, codecs
+import os.path, sqlite3, urllib.request, re, sys, codecs, requests, json
 from Google import Create_Service
-from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from iso8601_duration import parse_duration
 
 #YouTube API Info
-CLIENT_SECRET_FILE = 'H:\My Drive\MixItUp\Files\client_secret_913406518902-2v45e1g516ukedgf94cph01e0uf65ju3.apps.googleusercontent.com.json'
-API_NAME = 'youtube'
-API_VERSION = 'v3'
-SCOPES = ['https://www.googleapis.com/auth/youtube']
+YoutubeAPIKey = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
 
-con = sqlite3.connect('H:\My Drive\MixItUp\Files\songRequest.db')
+con = sqlite3.connect(os.path.join(os.path.dirname(__file__), 'songRequest.db'))
 
 # Global Variables 
 youTubeURL 	= 'https://www.youtube.com/watch?v='
@@ -37,16 +33,9 @@ def getYouTubeID(Search):
 
 # Get YouTube Information
 def getYouTubeInfo(videoID):
-	service = Create_Service(CLIENT_SECRET_FILE, API_NAME, API_VERSION, SCOPES)
-	part_string = 'contentDetails,snippet'
-	video_ids = videoID
-
-	response = service.videos().list(
-		part = part_string,
-		id = video_ids
-	).execute()
-
-	return response
+	API =  requests.get('https://www.googleapis.com/youtube/v3/videos?id=' + videoID + '&key=' + YoutubeAPIKey + '&part=contentDetails,snippet')
+	data = API.text
+	return json.loads(data)
 
 # Get SoundCloud title
 def getSoundCloudInfo(url):
@@ -79,7 +68,6 @@ def checkForDuplicates(URL):
 	cur = con.cursor()
 	cur.execute("SELECT COUNT(*) FROM Songs WHERE URL = ? AND Status = 'Queued'", (URL,))
 	dupes = cur.fetchone()[0]
-	con.close()
 	if dupes > 0:
 		return True
 	else:
@@ -108,46 +96,54 @@ def main():
 	for x in sys.argv[5:]:
 		Search = Search + ' ' + x
 
-	parseURL = urlparse(Search)
-
 	URL = ''
 	Title = ''
 
-	if len(parseURL.netloc) > 0:
+	youtubeMatch = re.search(r'(?:.+?)?(?:\/v\/|watch\/|\?v=|\&v=|youtu\.be\/|\/v=|^youtu\.be\/|watch\%3Fv\%3D)([a-zA-Z0-9_-]{11})+', Search)
+	soundCloudMatch = re.search(r'^(?:(https?):\/\/)?(?:(?:www|m)\.)?(soundcloud\.com|snd\.sc)\/(.*)$', Search)
+
+	if youtubeMatch or soundCloudMatch:
 		# If input is a YouTube Link
-		if 'youtube' in parseURL.netloc or 'youtu.be' in parseURL.netloc:
-			ID = getYouTubeID(Search)
+		if youtubeMatch:
+			ID = youtubeMatch.group(1)
 			videoInfo = getYouTubeInfo(ID)
 
 			# If YouTube Link is invalid
 			if videoInfo['pageInfo']['totalResults'] == 0:
-				print('@' + TwitchUsername + 'Unable to add song to queue: link invalid!')
+				print('@' + TwitchUsername + ' Unable to add song to queue: link invalid!')
 				return
 
 			if not checkVideoLength(videoInfo['items'][0]['contentDetails']['duration']):
-				print('@' + TwitchUsername + 'Request is not within the required length, 1 to 300 seconds')
+				print('@' + TwitchUsername + ' Request is not within the required length, 1 to 300 seconds')
 				return
 
 			URL = youTubeURL + ID
 			Title = videoInfo['items'][0]['snippet']['title']
 
 		# Else if input is a SoundCloud Link
-		elif 'soundcloud' in parseURL.netloc:
+		elif soundCloudMatch:
+			if '/sets/' in Search:
+				print('@' + TwitchUsername + ' You must request an individual SoundCloud link; not a set!')
+				return
+
 			URL = Search
 			Title = getSoundCloudInfo(Search)
+
 		else:
 			# If input is a URL that does not get caught by the initial checks
-			print('@' + TwitchUsername + 'Only valid YouTube or SoundCloud links are accepted!')
+			print('@' + TwitchUsername + ' Only valid YouTube or SoundCloud links are accepted!')
 			return
+
 
 	# Else input is something else (phrase, youtube VideoID, unsupported website, or gibberish)
 	else:
 		# Checking if YouTube Video ID
-		ID = getYouTubeID(Search)
-		videoInfo = getYouTubeInfo(ID)
-		if videoInfo['pageInfo']['totalResults'] != 0:
-			URL = youTubeURL + ID
-			Title = videoInfo['items'][0]['snippet']['title']
+		IDCheck = re.search(r'(.*?)(^|\/|v=)([a-z0-9_-]{11})(.*)?', Search, flags=re.I|re.M)
+		if IDCheck:
+			videoInfo = getYouTubeInfo(IDCheck.group(3))
+			if videoInfo['pageInfo']['totalResults'] != 0:
+				URL = youTubeURL + IDCheck.group(3)
+				Title = videoInfo['items'][0]['snippet']['title']
 
 		else:
 			ID = searchYoutube(Search)
@@ -156,15 +152,15 @@ def main():
 			Title = videoInfo['items'][0]['snippet']['title']
 
 	if checkForDuplicates(URL):
-		print('@' + TwitchUsername + 'This song is already in the Queue!')
+		print('@' + TwitchUsername + ' This song is already in the Queue!')
 		return
 
 	insertIntoDB(Priority, TwitchUserID, TwitchUsername, Title, URL)
-	print('@' + TwitchUsername + 'Added ' + Title + ' to the playlist')
+	print('@' + TwitchUsername + ' Added ' + Title + ' to the Queue')
 
-	#print('URL: ' + URL )
-	#print('Title: ' + Title )
-	#print('User: ' + TwitchUserID )
+	print('URL: ' + URL )
+	print('Title: ' + Title )
+	print('User: ' + TwitchUserID )
 
 	#encoded_unicode = Title.encode("utf8")
 	#f = open('H:\\My Drive\\MixItUp\\Files\\test.txt', "wb")

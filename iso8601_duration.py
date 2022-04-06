@@ -68,8 +68,3 @@ def parse_duration(iso_duration):
 #example usage of format_duration()
 td = timedelta(seconds=10.2, milliseconds=322)
 iso_duration = format_duration(td)
-print(iso_duration)
-
-#example usage of parse_duration()
-print(parse_duration(iso_duration))
-
